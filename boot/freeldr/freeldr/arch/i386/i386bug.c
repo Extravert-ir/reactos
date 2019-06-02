@@ -164,6 +164,7 @@ i386PrintExceptionText(ULONG TrapIndex, PKTRAP_FRAME TrapFrame, PKSPECIAL_REGIST
               TrapFrame->SegGs, Special->Idtr.Base, Special->Idtr.Limit);
     PrintText("SS: %.4lx        LDTR: %.4lx TR: %.4lx\n\n",
               TrapFrame->SegSs, Special->Ldtr, Special->Idtr.Limit);
+    i386PrintFrames(TrapFrame);                        // Display frames
     InstructionPointer = (PUCHAR)TrapFrame->Rip;
 #endif
     PrintText("\nInstruction stream: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x \n",

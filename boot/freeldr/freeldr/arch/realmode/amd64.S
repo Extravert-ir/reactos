@@ -67,7 +67,11 @@ Msg_LongModeSupported:
     call writestr
 
     /* Load the GDT */
+#ifdef _USE_ML
     lgdt fword ptr [gdtptr]
+#else
+    lgdt [gdtptr]
+#endif
 
     /* Build the startup page tables */
     call BuildPageTables
@@ -116,7 +120,7 @@ gdt:
 /* GDT table pointer */
 gdtptr:
     .word HEX(37) /* Limit */
-    .long offset gdt   /* Base Address */
+    .long gdt   /* Base Address */
 
 
 CheckFor64BitSupport:
@@ -188,8 +192,8 @@ BuildPageTables:
     push es
 
     /* Get segment of the PML4 */
-    mov eax, PML4_ADDRESS / 16
-    mov es, ax
+    mov dx, PML4_ADDRESS / 16
+    mov es, dx
     cld
     xor di, di
 
@@ -246,7 +250,7 @@ RealModeEntryPoint:
     mov cr0, eax
 
     /* Clear prefetch queue & correct CS */
-    ljmp16 0, offset InRealMode
+    ljmp16 0, InRealMode
 
 InRealMode:
 

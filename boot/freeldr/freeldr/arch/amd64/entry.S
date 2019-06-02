@@ -31,7 +31,7 @@ RealEntryPoint:
     jmp qword ptr [ContinueAddress]
 
 ContinueAddress:
-    .quad offset FrldrStartup
+    .quad FrldrStartup
 
 FrldrStartup:
 
@@ -106,7 +106,7 @@ SwitchToReal:
     jmp fword ptr [jumpvector]
 
 jumpvector:
-    .long offset SwitchToRealCompSegment
+    .long SwitchToRealCompSegment
     .word CMODE_CS
 
 SwitchToRealCompSegment:
@@ -155,7 +155,11 @@ PxeCallApi:
 //void __lgdt(void *Source);
 PUBLIC __lgdt
 __lgdt:
+#ifdef _USE_ML
     lgdt fword ptr [rcx]
+#else
+    lgdt [rcx]
+#endif
     ret
 
 //void __ltr(unsigned short Source);

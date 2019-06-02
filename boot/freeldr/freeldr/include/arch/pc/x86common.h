@@ -1,14 +1,8 @@
-
-#ifndef HEX
-#define HEX(y) 0x##y
-#endif
-
 /* Memory layout */
-#ifdef _M_AMD64
 #define PML4_ADDRESS        HEX(1000) /* One page PML4 page table */
 #define PDP_ADDRESS         HEX(2000) /* One page PDP page table */
 #define PD_ADDRESS          HEX(3000) /* One page PD page table */
-#endif
+
 #define BIOSCALLBUFFER      HEX(4000) /* Buffer to store temporary data for any Int386() call */
 #define STACK16ADDR         HEX(6F00) /* The 16-bit stack top will be at 0000:6F00 */
 #define BSS_START           HEX(6F00)
