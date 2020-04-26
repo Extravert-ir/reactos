@@ -24,13 +24,12 @@ env:
     - DO_BUILD=1
 
 before_install:
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then
+  - if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
   - ln -s /usr/share/clang/clang-format-9/clang-format-diff.py ./sdk/tools/;
   - wget https://svn.reactos.org/amine/RosBEBinFull.tar.gz -O RosBE.tar.gz
   - tar -xzf RosBE.tar.gz
   - echo 'mkdir ../Build && cd ../Build && $TRAVIS_BUILD_DIR/configure.sh -DENABLE_ROSTESTS=1 && ninja -k 0 && ninja bootcd' > tmp_file
-  - fi
-  - if [ "$TRAVIS_OS_NAME" = "windows" ]; then
+  - elif [[ "$TRAVIS_OS_NAME" = "windows" ]]; then
   - wget https://svn.reactos.org/storage/vperevertkin/travisWin.7z -O ./travisWin.7z
   - 7z x ./travisWin.7z -o/c/rosbe
   - export PATH=/c/rosbe/bin:$PATH
