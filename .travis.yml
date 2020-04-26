@@ -1,36 +1,56 @@
 language: cpp
 
-os:
-  - linux
-  - windows
+# os:
+#   - linux
+#   - windows
 
-addons:
-  apt:
-    sources:
-      - sourceline: 'deb https://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main'
-        key_url: 'https://apt.llvm.org/llvm-snapshot.gpg.key'
-    packages:
-      clang-format-9
+# addons:
+#   apt:
+#     sources:
+#       - sourceline: 'deb https://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main'
+#         key_url: 'https://apt.llvm.org/llvm-snapshot.gpg.key'
+#     packages:
+#       clang-format-9
 
 git:
   depth: 5
 
-env:
-  global:
-    - DO_BUILD=0
-    - DO_CHECK=0
-    - CLFORMAT_BINARY=clang-format-9
-  jobs:
-    - DO_BUILD=1
+# env:
+#   global:
+#     - DO_BUILD=0
+#     - DO_CHECK=0
+#     - CLFORMAT_BINARY=clang-format-9
+#   jobs:
+#     - DO_BUILD=1
+
+# before_install:
+# ln -s /usr/share/clang/clang-format-9/clang-format-diff.py ./sdk/tools/
+# wget https://svn.reactos.org/amine/RosBEBinFull.tar.gz -O RosBE.tar.gz
+# tar -xzf RosBE.tar.gz
+# echo 'mkdir ../Build && cd ../Build && $TRAVIS_BUILD_DIR/configure.sh -DENABLE_ROSTESTS=1 && ninja -k 0 && ninja bootcd' > tmp_file
+# script:
+# elif [[ $TRAVIS_OS_NAME = "linux" ]] && [[ $DO_CHECK == "1" ]]; then
+#     ./sdk/tools/check_code_format.sh;
+
+jobs:
+  include:
+    - os: linux
+      env: ARCH=i386
+    - os: windows
+      env: ARCH=i386 VS_TOOLS=x64_x86
+    - os: windows
+      env: ARCH=amd64 VS_TOOLS=x64
+
+
+
 
 before_install:
-  - |
-    if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
-      ln -s /usr/share/clang/clang-format-9/clang-format-diff.py ./sdk/tools/
+  - if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
       wget https://svn.reactos.org/amine/RosBEBinFull.tar.gz -O RosBE.tar.gz
       tar -xzf RosBE.tar.gz
       echo 'mkdir ../Build && cd ../Build && $TRAVIS_BUILD_DIR/configure.sh -DENABLE_ROSTESTS=1 && ninja -k 0 && ninja bootcd' > tmp_file
-    elif [[ "$TRAVIS_OS_NAME" = "windows" ]]; then
+    fi
+  - if [[ "$TRAVIS_OS_NAME" = "windows" ]]; then
       wget https://svn.reactos.org/storage/vperevertkin/travisWin.7z -O ./travisWin.7z
       7z x ./travisWin.7z -o/c/rosbe
       export PATH=/c/rosbe/bin:$PATH
@@ -38,15 +58,11 @@ before_install:
     fi
 
 script:
-  - |
-    if [[ $TRAVIS_OS_NAME = "linux" ]] && [[ $DO_BUILD == "1" ]]; then
-      ./RosBEBinFull/RosBE.sh < tmp_file;
-    elif [[ $TRAVIS_OS_NAME = "linux" ]] && [[ $DO_CHECK == "1" ]]; then
-      ./sdk/tools/check_code_format.sh;
-    elif [[ $TRAVIS_OS_NAME = "windows" ]]; then
+  - if [[ $TRAVIS_OS_NAME = "linux" ]]; then ./RosBEBinFull/RosBE.sh < tmp_file; fi
+  - elif [[ $TRAVIS_OS_NAME = "windows" ]]; then
       ls -la $TRAVIS_BUILD_DIR
       echo "set PATH=C:\windows\system32;%PATH%" > $TRAVIS_BUILD_DIR/build.bat
-      echo "call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat\" x64_x86 && \"$(cygpath -w $TRAVIS_BUILD_DIR)\\configure.cmd\" -DENABLE_ROSAPPS=1 -DENABLE_ROSTESTS=1 && cmake --build ." >> $TRAVIS_BUILD_DIR/build.bat
+      echo "call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat\" $VS_TOOLS && \"$(cygpath -w $TRAVIS_BUILD_DIR)\\configure.cmd\" -DENABLE_ROSAPPS=1 -DENABLE_ROSTESTS=1 && cmake --build ." >> $TRAVIS_BUILD_DIR/build.bat
       cat $TRAVIS_BUILD_DIR/build.bat
       ls -la $TRAVIS_BUILD_DIR
       cmd.exe //C "$(cygpath -w $TRAVIS_BUILD_DIR)\build.bat"

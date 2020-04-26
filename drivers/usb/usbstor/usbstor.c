@@ -192,7 +192,7 @@ DriverEntry(
 
     DPRINT("********* USB Storage *********\n");
 
-    break the build;
+    // break the build;
     DriverObject->DriverUnload = USBSTOR_Unload;
     DriverObject->DriverExtension->AddDevice = USBSTOR_AddDevice;
     DriverObject->DriverStartIo = USBSTOR_StartIo;
