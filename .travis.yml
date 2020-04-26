@@ -44,6 +44,6 @@ script:
     elif [[ $TRAVIS_OS_NAME = "linux" ]] && [[ $DO_CHECK == "1" ]]; then
       ./sdk/tools/check_code_format.sh;
     elif [[ $TRAVIS_OS_NAME = "windows" ]]; then
-      cmd.exe //C "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64_x86 && "$TRAVIS_BUILD_DIR/configure.cmd -DENABLE_ROSTESTS=1 -DENABLE_ROSAPPS=1";
+      cmd.exe //C "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64_x86 && "%TRAVIS_BUILD_DIR%/configure.cmd -DENABLE_ROSTESTS=1 -DENABLE_ROSAPPS=1";
     fi
 
