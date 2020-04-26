@@ -1,5 +1,8 @@
-dist: bionic
 language: cpp
+
+os:
+  - linux
+  - windows
 
 addons:
   apt:
@@ -21,14 +24,25 @@ env:
     - DO_BUILD=1
 
 before_install:
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then
   - ln -s /usr/share/clang/clang-format-9/clang-format-diff.py ./sdk/tools/;
   - wget https://svn.reactos.org/amine/RosBEBinFull.tar.gz -O RosBE.tar.gz
   - tar -xzf RosBE.tar.gz
   - echo 'mkdir ../Build && cd ../Build && $TRAVIS_BUILD_DIR/configure.sh -DENABLE_ROSTESTS=1 && ninja -k 0 && ninja bootcd' > tmp_file
+  - fi
+  - if [ "$TRAVIS_OS_NAME" = "windows" ]; then
+  - wget https://svn.reactos.org/storage/vperevertkin/travisWin.7z -O ./travisWin.7z
+  - 7z x ./travisWin.7z -o/c/rosbe
+  - export PATH=/c/rosbe/bin:$PATH
+  - mkdir ../build && cd ../build
+  - fi
 
 script:
   - if [ $DO_BUILD == "1" ]; then
       ./RosBEBinFull/RosBE.sh < tmp_file;
     elif [ $DO_CHECK == "1" ]; then
       ./sdk/tools/check_code_format.sh;
+    elif [ $TRAVIS_OS_NAME = "windows"]
+      cmd.exe //C 'C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat' x64_x86 '&&' '$TRAVIS_BUILD_DIR\configure.cmd -DENABLE_ROSTESTS=1 -DENABLE_ROSAPPS=1' '&&' 'cmake --build .'
     fi
+
