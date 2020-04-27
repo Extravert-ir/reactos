@@ -45,12 +45,14 @@ jobs:
 
 
 before_install:
-  - if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
+  - |
+    if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
       wget https://svn.reactos.org/amine/RosBEBinFull.tar.gz -O RosBE.tar.gz
       tar -xzf RosBE.tar.gz
       echo 'mkdir ../Build && cd ../Build && $TRAVIS_BUILD_DIR/configure.sh -DENABLE_ROSTESTS=1 && ninja -k 0 && ninja bootcd' > tmp_file
     fi
-  - if [[ "$TRAVIS_OS_NAME" = "windows" ]]; then
+  - |
+    if [[ "$TRAVIS_OS_NAME" = "windows" ]]; then
       wget https://svn.reactos.org/storage/vperevertkin/travisWin.7z -O ./travisWin.7z
       7z x ./travisWin.7z -o/c/rosbe
       export PATH=/c/rosbe/bin:$PATH
@@ -59,7 +61,8 @@ before_install:
 
 script:
   - if [[ $TRAVIS_OS_NAME = "linux" ]]; then ./RosBEBinFull/RosBE.sh < tmp_file; fi
-  - elif [[ $TRAVIS_OS_NAME = "windows" ]]; then
+  - |
+    if [[ $TRAVIS_OS_NAME = "windows" ]]; then
       ls -la $TRAVIS_BUILD_DIR
       echo "set PATH=C:\windows\system32;%PATH%" > $TRAVIS_BUILD_DIR/build.bat
       echo "call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat\" $VS_TOOLS && \"$(cygpath -w $TRAVIS_BUILD_DIR)\\configure.cmd\" -DENABLE_ROSAPPS=1 -DENABLE_ROSTESTS=1 && cmake --build ." >> $TRAVIS_BUILD_DIR/build.bat
