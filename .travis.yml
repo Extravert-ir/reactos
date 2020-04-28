@@ -34,11 +34,14 @@ git:
 
 jobs:
   include:
-    - os: linux
-      env: ARCH=i386
-    - os: windows
-      env: ARCH=i386 VS_TOOLS=x64_x86
-    - os: windows
+    # - name: GCC i386
+    #   os: linux
+    #   env: ARCH=i386
+    # - name: MSVC i386
+    #   os: windows
+    #   env: ARCH=i386 VS_TOOLS=x64_x86
+    - name: MSVC amd64
+      os: windows
       env: ARCH=amd64 VS_TOOLS=x64
 
 
