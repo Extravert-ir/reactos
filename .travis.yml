@@ -68,7 +68,7 @@ script:
     if [[ $TRAVIS_OS_NAME = "windows" ]]; then
       ls -la $TRAVIS_BUILD_DIR
       echo "set PATH=C:\windows\system32;%PATH%" > $TRAVIS_BUILD_DIR/build.bat
-      echo "call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat\" $VS_TOOLS && \"$(cygpath -w $TRAVIS_BUILD_DIR)\\configure.cmd\" -DCMAKE_SYSTEM_VERSION=5.2 -DENABLE_ROSAPPS=1 -DENABLE_ROSTESTS=1 && cmake --build ." >> $TRAVIS_BUILD_DIR/build.bat
+      echo "call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat\" $VS_TOOLS && \"$(cygpath -w $TRAVIS_BUILD_DIR)\\configure.cmd\" -DCMAKE_SYSTEM_VERSION\=5.2 -DENABLE_ROSAPPS\=1 -DENABLE_ROSTESTS\=1 && cmake --build ." >> $TRAVIS_BUILD_DIR/build.bat
       cat $TRAVIS_BUILD_DIR/build.bat
       ls -la $TRAVIS_BUILD_DIR
       cmd.exe //C "$(cygpath -w $TRAVIS_BUILD_DIR)\build.bat"
