@@ -268,12 +268,18 @@ PartMgrUpdateLayout(
         {
             // detach the device from the list
             prevEntry->Next = curEntry->Next;
+            curEntry = prevEntry;
+            partExt->Attached = FALSE;
 
-            // IoDeleteDevice(partExt->DeviceObject);
+            // enumerated PDOs will receive IRP_MN_REMOVE_DEVICE
+            if (!partExt->IsEnumerated)
+            {
+                PartMgrRemovePartition(partExt, TRUE);
+            }
         }
 
         prevEntry = curEntry;
-        curEntry = partExt->ListEntry.Next;
+        curEntry = curEntry->Next;
     }
 
     UINT32 partNumber = 0;
@@ -342,7 +348,7 @@ PartMgrUpdateLayout(
         while (curEntry != NULL)
         {
             PPARTITION_EXTENSION curPart = CONTAINING_RECORD(curEntry, PARTITION_EXTENSION, ListEntry);
-            if (curPart->MarkRemoved || curPart->DetectedNumber < partNumber)
+            if (curPart->DetectedNumber < partNumber)
             {
                 prevEntry = curEntry;
                 curEntry = curPart->ListEntry.Next;
@@ -367,6 +373,8 @@ PartMgrUpdateLayout(
             partExt->ListEntry.Next = fdoExtension->PartitionList.Next;
             fdoExtension->PartitionList.Next = &partExt->ListEntry;
         }
+
+        partExt->Attached = TRUE;
     }
 
     fdoExtension->EnumeratedPartitionsTotal = totalPartitions;
@@ -461,7 +469,7 @@ PartMgrDeviceControl(
     {
         case IOCTL_DISK_GET_PARTITION_INFO:
         {
-            if (!VerifyIrpBufferSize(Irp, sizeof(PARTITION_INFORMATION)))
+            if (!VerifyIrpOutBufferSize(Irp, sizeof(PARTITION_INFORMATION)))
             {
                 status = STATUS_BUFFER_TOO_SMALL;
                 break;
@@ -486,7 +494,7 @@ PartMgrDeviceControl(
         }
         case IOCTL_DISK_GET_PARTITION_INFO_EX:
         {
-            if (!VerifyIrpBufferSize(Irp, sizeof(PARTITION_INFORMATION_EX)))
+            if (!VerifyIrpOutBufferSize(Irp, sizeof(PARTITION_INFORMATION_EX)))
             {
                 status = STATUS_BUFFER_TOO_SMALL;
                 break;
@@ -513,7 +521,7 @@ PartMgrDeviceControl(
             SIZE_T size = FIELD_OFFSET(DRIVE_LAYOUT_INFORMATION, PartitionEntry[0]);
             size += fdoExtension->LayoutCache->PartitionCount * sizeof(PARTITION_INFORMATION);
 
-            if (!VerifyIrpBufferSize(Irp, size))
+            if (!VerifyIrpOutBufferSize(Irp, size))
             {
                 status = STATUS_BUFFER_TOO_SMALL;
                 PartMgrReleaseLayoutLock(fdoExtension);
@@ -538,9 +546,16 @@ PartMgrDeviceControl(
         }
         case IOCTL_DISK_SET_DRIVE_LAYOUT:
         {
-            // todo: check buffers
-
             PDRIVE_LAYOUT_INFORMATION layoutInfo = Irp->AssociatedIrp.SystemBuffer;
+
+            if (!VerifyIrpInBufferSize(Irp, sizeof(*layoutInfo)))
+            {
+                status = STATUS_INFO_LENGTH_MISMATCH;
+                break;
+            }
+
+            // todo: check input buffer better
+
             // SIZE_T layoutLength = ioStack->Parameters.DeviceIoControl.InputBufferLength;
 
             PDRIVE_LAYOUT_INFORMATION_EX layoutEx = PartMgrConvertLayoutToExtended(layoutInfo);
@@ -560,7 +575,6 @@ PartMgrDeviceControl(
             if (!NT_SUCCESS(status))
             {
                 ASSERT(FALSE); // the function cannot fail when layout is already supplied
-                break;
             }
 
             // write the partition table to the disk
@@ -627,10 +641,8 @@ PartMgrPnp(
 
             case IRP_MN_START_DEVICE:
             {
-                STORAGE_DEVICE_NUMBER deviceNumber;
-
-                // if this is sent to the FDO we should forward it down the
-                // attachment chain before we start the FDO.
+                // if this is sent to the FDO so we should forward it down the
+                // attachment chain before we can start the FDO
 
                 if (!IoForwardIrpSynchronously(fdoExtension->LowerDevice, Irp))
                 {
@@ -651,6 +663,8 @@ PartMgrPnp(
                 {
                     break;
                 }
+
+                STORAGE_DEVICE_NUMBER deviceNumber;
 
                 // obtain the disk device number
                 status = IssueSyncIoControlRequest(
@@ -674,26 +688,6 @@ PartMgrPnp(
 
                 break;
             }
-            // case IRP_MN_REMOVE_DEVICE:
-            // {
-            //     // for (PSINGLE_LIST_ENTRY curEntry = fdoExtension->PartitionList.Next;
-            //     //      curEntry != NULL;
-            //     //      curEntry = curEntry->Next)
-            //     // {
-            //     //     PPARTITION_EXTENSION partExt = CONTAINING_RECORD(curEntry, PARTITION_EXTENSION, ListEntry);
-
-            //     //     IoDeleteDevice(partExt->DeviceObject);
-            //     // }
-
-            //     // Send the IRP down the stack
-            //     IoSkipCurrentIrpStackLocation(Irp);
-            //     Irp->IoStatus.Status = STATUS_SUCCESS;
-            //     status = IoCallDriver(fdoExtension->LowerDevice, Irp);
-
-            //     IoDetachDevice(fdoExtension->LowerDevice);
-            //     IoDeleteDevice(DeviceObject);
-            //     return status;
-            // }
             case IRP_MN_QUERY_DEVICE_RELATIONS:
             {
                 DEVICE_RELATION_TYPE type = ioStack->Parameters.QueryDeviceRelations.Type;
@@ -727,6 +721,8 @@ PartMgrPnp(
                     {
                         PPARTITION_EXTENSION partExt = CONTAINING_RECORD(curEntry, PARTITION_EXTENSION, ListEntry);
 
+                        // mark the PDO to know that we don't need to manually delete it
+                        partExt->IsEnumerated = TRUE;
                         deviceRelations->Objects[deviceRelations->Count++] = partExt->DeviceObject;
                         ObReferenceObject(partExt->DeviceObject);
 
@@ -744,7 +740,58 @@ PartMgrPnp(
                 IoCopyCurrentIrpStackLocationToNext(Irp);
                 return IoCallDriver(fdoExtension->LowerDevice, Irp);
             }
-            default: {
+            case IRP_MN_SURPRISE_REMOVAL:
+            {
+                // all enumerated child devices should receive IRP_MN_REMOVE_DEVICE
+                // removing only non-enumerated ones here
+                for (PSINGLE_LIST_ENTRY curEntry = fdoExtension->PartitionList.Next;
+                     curEntry != NULL;
+                     curEntry = curEntry->Next)
+                {
+                    PPARTITION_EXTENSION partExt = CONTAINING_RECORD(curEntry, PARTITION_EXTENSION, ListEntry);
+
+                    if (partExt->IsEnumerated)
+                    {
+                        PartMgrRemovePartition(partExt, TRUE);
+                    }
+                }
+
+                // Send the IRP down the stack
+                IoCopyCurrentIrpStackLocationToNext(Irp);
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                return IoCallDriver(fdoExtension->LowerDevice, Irp);
+            }
+            case IRP_MN_REMOVE_DEVICE:
+            {
+                for (PSINGLE_LIST_ENTRY curEntry = fdoExtension->PartitionList.Next;
+                     curEntry != NULL;
+                     curEntry = curEntry->Next)
+                {
+                    PPARTITION_EXTENSION partExt = CONTAINING_RECORD(curEntry, PARTITION_EXTENSION, ListEntry);
+
+                    ASSERT(partExt->DeviceRemoved);
+                }
+
+                // Send the IRP down the stack
+                IoCopyCurrentIrpStackLocationToNext(Irp);
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                status = IoCallDriver(fdoExtension->LowerDevice, Irp);
+
+                IoDetachDevice(fdoExtension->LowerDevice);
+                IoDeleteDevice(DeviceObject);
+                return status;
+            }
+            case IRP_MN_QUERY_STOP_DEVICE:
+            case IRP_MN_QUERY_REMOVE_DEVICE:
+            case IRP_MN_CANCEL_STOP_DEVICE:
+            case IRP_MN_CANCEL_REMOVE_DEVICE:
+            case IRP_MN_STOP_DEVICE:
+            {
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                // fallthrough
+            }
+            default:
+            {
                 IoSkipCurrentIrpStackLocation(Irp);
                 return IoCallDriver(fdoExtension->LowerDevice, Irp);
             }
@@ -778,6 +825,29 @@ PartMgrReadWrite(
     return IoCallDriver(partExt->LowerDevice, Irp);
 }
 
+DRIVER_DISPATCH PartMgrPower;
+NTSTATUS
+NTAPI
+PartMgrPower(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp)
+{
+    PPARTITION_EXTENSION partExt = DeviceObject->DeviceExtension;
+
+    if (!partExt->IsFDO)
+    {
+        NTSTATUS status = Irp->IoStatus.Status;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return status;
+    }
+    else
+    {
+        PoStartNextPowerIrp(Irp);
+        IoSkipCurrentIrpStackLocation(Irp);
+        return PoCallDriver(partExt->LowerDevice, Irp);
+    }
+}
+
 NTSTATUS
 NTAPI
 DriverEntry(
@@ -800,6 +870,9 @@ DriverEntry(
     DriverObject->MajorFunction[IRP_MJ_WRITE]          = PartMgrReadWrite;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = PartMgrDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_PNP]            = PartMgrPnp;
+    // DriverObject->MajorFunction[IRP_MJ_SHUTDOWN]        = ClassGlobalDispatch;
+    // DriverObject->MajorFunction[IRP_MJ_FLUSH_BUFFERS]   = ClassGlobalDispatch;
+    DriverObject->MajorFunction[IRP_MJ_POWER]          = PartMgrPower;
 
     WARN("[PARTMGR] ReactOS Partition manager driver v 0.0.1\n");
     return STATUS_SUCCESS;

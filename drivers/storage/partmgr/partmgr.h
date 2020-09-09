@@ -1,3 +1,10 @@
+/*
+ * PROJECT:     Partition manager driver
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Main header
+ * COPYRIGHT:   2020 Victor Perevertkin (victor.perevertkin@reactos.org)
+ */
+
 #ifndef _PARTMGR_H_
 #define _PARTMGR_H_
 
@@ -15,7 +22,8 @@
 
 #define TAG_PARTMGR 'MtrP'
 
-typedef struct _DISK_GEOMETRY_EX_PARTMGR {
+typedef struct _DISK_GEOMETRY_EX_PARTMGR
+{
     DISK_GEOMETRY Geometry;
     UINT64 DiskSize;
     DISK_PARTITION_INFO Partition;
@@ -65,6 +73,10 @@ typedef struct _PARTITION_EXTENSION
     UINT32 DetectedNumber;
     UINT32 OnDiskNumber; // partition number for issuing Io requests to the kernel
     PARTITION_STYLE Style;
+    BOOLEAN IsEnumerated; // reported via IRP_MN_QUERY_DEVICE_RELATIONS
+    BOOLEAN SymlinkCreated;
+    BOOLEAN DeviceRemoved; // !!!
+    BOOLEAN Attached; // attached to PartitionList of the FDO
     union
     {
         struct
@@ -82,7 +94,6 @@ typedef struct _PARTITION_EXTENSION
             UINT32 HiddenSectors;
         } Mbr;
     };
-    BOOLEAN MarkRemoved;
     UNICODE_STRING PartitionInterfaceName;
     UNICODE_STRING VolumeInterfaceName;
     UNICODE_STRING DeviceName;
@@ -102,6 +113,11 @@ PartMgrCreatePartitionDevice(
     _Out_ PDEVICE_OBJECT *PDO);
 
 NTSTATUS
+PartMgrRemovePartition(
+    _In_ PPARTITION_EXTENSION PartExt,
+    _In_ BOOLEAN FinalRemove);
+
+NTSTATUS
 PartMgrPartitionHandlePnp(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp);
@@ -112,13 +128,13 @@ PartMgrPartitionDeviceControl(
     _In_ PIRP Irp);
 
 NTSTATUS
-NTAPI
-ForwardIrpAndForget(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP Irp);
+PartMgrRemovePartition(
+    _In_ PPARTITION_EXTENSION PartExt,
+    _In_ BOOLEAN FinalRemove);
 
 NTSTATUS
-ForwardIrpSync(
+NTAPI
+ForwardIrpAndForget(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp);
 
@@ -134,12 +150,27 @@ IssueSyncIoControlRequest(
 
 inline
 BOOLEAN
-VerifyIrpBufferSize(
+VerifyIrpOutBufferSize(
     _In_ PIRP Irp,
     _In_ SIZE_T Size)
 {
     PIO_STACK_LOCATION ioStack = IoGetCurrentIrpStackLocation(Irp);
     if (ioStack->Parameters.DeviceIoControl.OutputBufferLength < Size)
+    {
+        Irp->IoStatus.Information = Size;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+inline
+BOOLEAN
+VerifyIrpInBufferSize(
+    _In_ PIRP Irp,
+    _In_ SIZE_T Size)
+{
+    PIO_STACK_LOCATION ioStack = IoGetCurrentIrpStackLocation(Irp);
+    if (ioStack->Parameters.DeviceIoControl.InputBufferLength < Size)
     {
         Irp->IoStatus.Information = Size;
         return FALSE;

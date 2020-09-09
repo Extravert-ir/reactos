@@ -7,6 +7,8 @@
 
 #include "partmgr.h"
 
+static const WCHAR PartitionSymLinkFormat[] = L"\\Device\\Harddisk%u\\Partition%u";
+
 NTSTATUS
 PartMgrReadPartitionTableEx(
     _In_ PFDO_EXTENSION FDOExtension,
@@ -40,7 +42,6 @@ PartMgrCreatePartitionDevice(
 
     WCHAR nameBuf[64];
     UNICODE_STRING deviceName;
-    // PFDO_EXTENSION fdoExtension = FDObject->DeviceExtension;
 
     // create the device object
 
@@ -103,13 +104,86 @@ PartMgrCreatePartitionDevice(
 }
 
 NTSTATUS
+PartMgrRemovePartition(
+    _In_ PPARTITION_EXTENSION PartExt,
+    _In_ BOOLEAN FinalRemove)
+{
+    NTSTATUS status;
+
+    ASSERT(!PartExt->DeviceRemoved); // fix the damn kernel!
+
+    // remove the symbolic link
+
+    if (PartExt->SymlinkCreated)
+    {
+        WCHAR nameBuf[64];
+        UNICODE_STRING partitionSymlink;
+        PFDO_EXTENSION fdoExtension = PartExt->LowerDevice->DeviceExtension;
+
+        swprintf(nameBuf, PartitionSymLinkFormat,
+            fdoExtension->DiskData.DeviceNumber, PartExt->DetectedNumber);
+
+        RtlInitUnicodeString(&partitionSymlink, nameBuf);
+
+        status = IoDeleteSymbolicLink(&partitionSymlink);
+
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+        PartExt->SymlinkCreated = FALSE;
+
+        INFO("[PARTMGR] Symlink removed %wZ -> %wZ\n", &PartExt->DeviceName, &partitionSymlink);
+    }
+
+    // release device interfaces
+
+    if (PartExt->PartitionInterfaceName.Buffer)
+    {
+        status = IoSetDeviceInterfaceState(&PartExt->PartitionInterfaceName, FALSE);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+        RtlFreeUnicodeString(&PartExt->PartitionInterfaceName);
+        RtlInitUnicodeString(&PartExt->PartitionInterfaceName, NULL);
+    }
+
+    if (PartExt->VolumeInterfaceName.Buffer)
+    {
+        status = IoSetDeviceInterfaceState(&PartExt->VolumeInterfaceName, FALSE);
+        if (!NT_SUCCESS(status))
+        {
+            return status;
+        }
+        RtlFreeUnicodeString(&PartExt->VolumeInterfaceName);
+        RtlInitUnicodeString(&PartExt->VolumeInterfaceName, NULL);
+    }
+
+    if (FinalRemove)
+    {
+        PartExt->DeviceRemoved = TRUE;
+
+        ASSERT(PartExt->DeviceName.Buffer);
+        if (PartExt->DeviceName.Buffer)
+        {
+            INFO("[PARTMGR] Removed device %wZ\n", &PartExt->DeviceName);
+            RtlFreeUnicodeString(&PartExt->DeviceName);
+        }
+
+        IoDeleteDevice(PartExt->DeviceObject);
+    }
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
 PartMgrPartitionHandlePnp(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp)
 {
     PIO_STACK_LOCATION ioStack = IoGetCurrentIrpStackLocation(Irp);
     PPARTITION_EXTENSION partExt = DeviceObject->DeviceExtension;
-    static const WCHAR PartitionSymLinkFormat[] = L"\\Device\\Harddisk%u\\Partition%u";
     NTSTATUS status;
 
     switch (ioStack->MinorFunction)
@@ -117,6 +191,8 @@ PartMgrPartitionHandlePnp(
         case IRP_MN_START_DEVICE:
         {
             // first, create a symbolic link for our device
+
+            ASSERT(!partExt->DeviceRemoved); // fix the damn kernel!
 
             WCHAR nameBuf[64];
             UNICODE_STRING partitionSymlink, interfaceName;
@@ -138,6 +214,8 @@ PartMgrPartitionHandlePnp(
             {
                 break;
             }
+
+            partExt->SymlinkCreated = TRUE;
 
             TRACE("[PARTMGR] Symlink created %wZ -> %wZ\n", &partExt->DeviceName, &partitionSymlink);
 
@@ -188,67 +266,17 @@ PartMgrPartitionHandlePnp(
             status = STATUS_SUCCESS;
             break;
         }
-        case IRP_MN_REMOVE_DEVICE:
-        {
-            // remove the symbolic link
-            WCHAR nameBuf[64];
-            UNICODE_STRING partitionSymlink;
-            PFDO_EXTENSION fdoExtension = partExt->LowerDevice->DeviceExtension;
-
-            swprintf(nameBuf, PartitionSymLinkFormat,
-                fdoExtension->DiskData.DeviceNumber, partExt->DetectedNumber);
-
-            if (!RtlCreateUnicodeString(&partitionSymlink, nameBuf))
-            {
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                break;
-            }
-
-            status = IoDeleteSymbolicLink(&partitionSymlink);
-
-            if (!NT_SUCCESS(status))
-            {
-                break;
-            }
-
-            DPRINT("[PARTMGR] Symlink removed %wZ -> %wZ\n", &partExt->DeviceName, &partitionSymlink);
-
-            // release device interfaces
-
-            if (partExt->PartitionInterfaceName.Buffer)
-            {
-                IoSetDeviceInterfaceState(&partExt->PartitionInterfaceName, FALSE);
-                RtlFreeUnicodeString(&partExt->PartitionInterfaceName);
-                RtlInitUnicodeString(&partExt->PartitionInterfaceName, NULL);
-            }
-
-            if (partExt->VolumeInterfaceName.Buffer)
-            {
-                IoSetDeviceInterfaceState(&partExt->VolumeInterfaceName, FALSE);
-                RtlFreeUnicodeString(&partExt->VolumeInterfaceName);
-                RtlInitUnicodeString(&partExt->VolumeInterfaceName, NULL);
-            }
-
-            // PartMgrAcquireLayoutLock(fdoExtension);
-
-            // IoDeleteDevice(DeviceObject);
-
-            // PartMgrReleaseLayoutLock(fdoExtension);
-
-            status = STATUS_SUCCESS;
-            break;
-        }
         case IRP_MN_QUERY_DEVICE_RELATIONS:
         {
+            ASSERT(!partExt->DeviceRemoved);
+
             DEVICE_RELATION_TYPE type = ioStack->Parameters.QueryDeviceRelations.Type;
 
             if (type == TargetDeviceRelation)
             {
                 // Device relations has one entry built in to it's size.
-
-                status = STATUS_INSUFFICIENT_RESOURCES;
-
-                PDEVICE_RELATIONS deviceRelations = ExAllocatePoolZero(PagedPool, sizeof(DEVICE_RELATIONS), TAG_PARTMGR);
+                PDEVICE_RELATIONS deviceRelations =
+                    ExAllocatePoolZero(PagedPool, sizeof(DEVICE_RELATIONS), TAG_PARTMGR);
 
                 if (deviceRelations != NULL)
                 {
@@ -256,16 +284,38 @@ PartMgrPartitionHandlePnp(
                     deviceRelations->Objects[0] = DeviceObject;
                     ObReferenceObject(deviceRelations->Objects[0]);
 
-                    Irp->IoStatus.Information = (ULONG_PTR) deviceRelations;
+                    Irp->IoStatus.Information = (ULONG_PTR)deviceRelations;
                     status = STATUS_SUCCESS;
                 }
-
+                else
+                {
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                }
             }
             else
             {
                 Irp->IoStatus.Information = 0;
                 status = Irp->IoStatus.Status;
             }
+            break;
+        }
+        case IRP_MN_QUERY_STOP_DEVICE:
+        case IRP_MN_QUERY_REMOVE_DEVICE:
+        case IRP_MN_CANCEL_STOP_DEVICE:
+        case IRP_MN_CANCEL_REMOVE_DEVICE:
+        case IRP_MN_STOP_DEVICE:
+        {
+            status = STATUS_SUCCESS;
+            break;
+        }
+        case IRP_MN_SURPRISE_REMOVAL:
+        {
+            status = PartMgrRemovePartition(partExt, FALSE);
+            break;
+        }
+        case IRP_MN_REMOVE_DEVICE:
+        {
+            status = PartMgrRemovePartition(partExt, TRUE);
             break;
         }
         case IRP_MN_QUERY_ID:
@@ -374,29 +424,12 @@ PartMgrPartitionDeviceControl(
 
     ASSERT(!partExt->IsFDO);
 
-    /* Need to implement:
-    IOCTL_DISK_GET_PARTITION_INFO +
-    IOCTL_DISK_SET_PARTITION_INFO
-    IOCTL_DISK_GET_PARTITION_INFO_EX +
-    IOCTL_DISK_SET_PARTITION_INFO_EX
-    IOCTL_DISK_UPDATE_PROPERTIES
-
-    IOCTL_MOUNTDEV_QUERY_DEVICE_NAME +
-    IOCTL_MOUNTDEV_QUERY_UNIQUE_ID +
-    IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME optional
-
-    IOCTL_VOLUME_GET_GPT_ATTRIBUTES
-
-    IOCTL_DISK_VERIFY // adjust offset +
-    IOCTL_DISK_GET_LENGTH_INFO // check if we need to do anything
-     */
-
     switch (ioStack->Parameters.DeviceIoControl.IoControlCode)
     {
         // disk stuff
         case IOCTL_DISK_GET_PARTITION_INFO:
         {
-            if (!VerifyIrpBufferSize(Irp, sizeof(PARTITION_INFORMATION)))
+            if (!VerifyIrpOutBufferSize(Irp, sizeof(PARTITION_INFORMATION)))
             {
                 status = STATUS_BUFFER_TOO_SMALL;
                 break;
@@ -432,7 +465,7 @@ PartMgrPartitionDeviceControl(
         }
         case IOCTL_DISK_GET_PARTITION_INFO_EX:
         {
-            if (!VerifyIrpBufferSize(Irp, sizeof(PARTITION_INFORMATION_EX)))
+            if (!VerifyIrpOutBufferSize(Irp, sizeof(PARTITION_INFORMATION_EX)))
             {
                 status = STATUS_BUFFER_TOO_SMALL;
                 break;
@@ -478,8 +511,12 @@ PartMgrPartitionDeviceControl(
         }
         case IOCTL_DISK_SET_PARTITION_INFO:
         {
-            // todo: check input buffer
             PSET_PARTITION_INFORMATION inputBuffer = Irp->AssociatedIrp.SystemBuffer;
+            if (!VerifyIrpInBufferSize(Irp, sizeof(*inputBuffer)))
+            {
+                status = STATUS_INFO_LENGTH_MISMATCH;
+                break;
+            }
 
             PartMgrAcquireLayoutLock(fdoExtension);
 
@@ -503,6 +540,11 @@ PartMgrPartitionDeviceControl(
         case IOCTL_DISK_SET_PARTITION_INFO_EX:
         {
             PSET_PARTITION_INFORMATION_EX inputBuffer = Irp->AssociatedIrp.SystemBuffer;
+            if (!VerifyIrpInBufferSize(Irp, sizeof(*inputBuffer)))
+            {
+                status = STATUS_INFO_LENGTH_MISMATCH;
+                break;
+            }
 
             PartMgrAcquireLayoutLock(fdoExtension);
 
@@ -533,10 +575,15 @@ PartMgrPartitionDeviceControl(
             Irp->IoStatus.Information = 0;
             break;
         }
+        case IOCTL_DISK_GET_LENGTH_INFO:
+        {
+            // todo
+            return ForwardIrpAndForget(DeviceObject, Irp);
+        }
         case IOCTL_DISK_VERIFY:
         {
             PVERIFY_INFORMATION verifyInfo = Irp->AssociatedIrp.SystemBuffer;
-            if (ioStack->Parameters.DeviceIoControl.InputBufferLength < sizeof(VERIFY_INFORMATION))
+            if (!VerifyIrpInBufferSize(Irp, sizeof(*verifyInfo)))
             {
                 status = STATUS_INFO_LENGTH_MISMATCH;
                 break;
@@ -546,10 +593,42 @@ PartMgrPartitionDeviceControl(
             verifyInfo->StartingOffset.QuadPart += partExt->StartingOffset;
             return ForwardIrpAndForget(DeviceObject, Irp);
         }
+        case IOCTL_DISK_UPDATE_PROPERTIES:
+        {
+            // if(DiskInvalidatePartitionTable(fdoExtension, FALSE))
+            // {
+            //     IoInvalidateDeviceRelations(fdoExtension->LowerPdo, BusRelations);
+            // }
+            status = STATUS_SUCCESS;
+
+            break;
+        }
+        case IOCTL_VOLUME_GET_GPT_ATTRIBUTES:
+        {
+            PVOLUME_GET_GPT_ATTRIBUTES_INFORMATION gptAttrs = Irp->AssociatedIrp.SystemBuffer;
+            if (!VerifyIrpOutBufferSize(Irp, sizeof(*gptAttrs)))
+            {
+                status = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+
+            // not supported on anything other than GPT
+            if (fdoExtension->DiskData.PartitionStyle != PARTITION_STYLE_GPT)
+            {
+                status = STATUS_INVALID_DEVICE_REQUEST;
+                break;
+            }
+
+            gptAttrs->GptAttributes = partExt->Gpt.Attributes;
+
+            status = STATUS_SUCCESS;
+            Irp->IoStatus.Information = sizeof(*gptAttrs);
+            break;
+        }
         // mountmgr stuff
         case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
         {
-            PMOUNTDEV_NAME name;
+            PMOUNTDEV_NAME name = Irp->AssociatedIrp.SystemBuffer;
 
             if (ioStack->Parameters.DeviceIoControl.OutputBufferLength < sizeof(MOUNTDEV_NAME))
             {
@@ -558,7 +637,6 @@ PartMgrPartitionDeviceControl(
                 break;
             }
 
-            name = Irp->AssociatedIrp.SystemBuffer;
             RtlZeroMemory(name, sizeof(MOUNTDEV_NAME));
             name->NameLength = partExt->DeviceName.Length;
 
@@ -578,7 +656,7 @@ PartMgrPartitionDeviceControl(
         }
         case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
         {
-            PMOUNTDEV_UNIQUE_ID uniqueId;
+            PMOUNTDEV_UNIQUE_ID uniqueId = Irp->AssociatedIrp.SystemBuffer;
 
             // if (!commonExtension->MountedDeviceInterfaceName.Buffer)
             // {
@@ -594,7 +672,6 @@ PartMgrPartitionDeviceControl(
                 break;
             }
 
-            uniqueId = Irp->AssociatedIrp.SystemBuffer;
             RtlZeroMemory(uniqueId, sizeof(MOUNTDEV_UNIQUE_ID));
             uniqueId->UniqueIdLength = partExt->VolumeInterfaceName.Length;
 
@@ -615,6 +692,64 @@ PartMgrPartitionDeviceControl(
             Irp->IoStatus.Information = sizeof(USHORT) + uniqueId->UniqueIdLength;
             break;
         }
+        // case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
+        // {
+        //     PMOUNTDEV_NAME name = Irp->AssociatedIrp.SystemBuffer;
+
+        //     if (!VerifyIrpOutBufferSize(Irp, sizeof(USHORT)))
+        //     {
+        //         status = STATUS_BUFFER_TOO_SMALL;
+        //         break;
+        //     }
+
+        //     RtlZeroMemory(name, sizeof(USHORT));
+        //     name->NameLength = partExt->DeviceName.Length;
+
+        //     if (!VerifyIrpOutBufferSize(Irp, sizeof(USHORT) + name->NameLength))
+        //     {
+        //         status = STATUS_BUFFER_TOO_SMALL;
+        //         break;
+        //     }
+
+        //     RtlCopyMemory(name->Name, partExt->DeviceName.Buffer, name->NameLength);
+
+        //     status = STATUS_SUCCESS;
+        //     Irp->IoStatus.Information = sizeof(USHORT) + name->NameLength;
+        //     break;
+        // }
+        // case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
+        // {
+        //     PMOUNTDEV_UNIQUE_ID uniqueId = Irp->AssociatedIrp.SystemBuffer;
+
+        //     if (!partExt->VolumeInterfaceName.Buffer)
+        //     {
+        //         status = STATUS_INVALID_PARAMETER;
+        //         break;
+        //     }
+
+        //     if (!VerifyIrpOutBufferSize(Irp, sizeof(USHORT)))
+        //     {
+        //         status = STATUS_BUFFER_TOO_SMALL;
+        //         break;
+        //     }
+
+        //     RtlZeroMemory(uniqueId, sizeof(USHORT));
+        //     uniqueId->UniqueIdLength = partExt->VolumeInterfaceName.Length;
+
+        //     if (!VerifyIrpOutBufferSize(Irp, sizeof(USHORT) + uniqueId->UniqueIdLength))
+        //     {
+        //         status = STATUS_BUFFER_TOO_SMALL;
+        //         break;
+        //     }
+
+        //     RtlCopyMemory(uniqueId->UniqueId,
+        //                   partExt->VolumeInterfaceName.Buffer,
+        //                   uniqueId->UniqueIdLength);
+
+        //     status = STATUS_SUCCESS;
+        //     Irp->IoStatus.Information = sizeof(USHORT) + uniqueId->UniqueIdLength;
+        //     break;
+        // }
         default:
             return ForwardIrpAndForget(DeviceObject, Irp);
     }

@@ -1,8 +1,7 @@
 
 list(APPEND SOURCE
-	debug.h
-	guid.c
-	partition.c
+    guid.c
+    partition.c
     partmgr.c
     utils.c)
 
