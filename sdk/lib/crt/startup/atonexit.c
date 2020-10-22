@@ -20,7 +20,7 @@
 
   void __cdecl _lock (int _File);
   void __cdecl _unlock (int _File);
-  
+
 _PVFV *__onexitbegin;
 _PVFV *__onexitend;
 
@@ -43,7 +43,7 @@ _onexit_t __cdecl mingw_onexit(_onexit_t func)
   _lock (_EXIT_LOCK1);
   onexitbegin = (_PVFV *) _decode_pointer (__onexitbegin);
   onexitend = (_PVFV *) _decode_pointer (__onexitend);
-  
+
   retval = __dllonexit (func, &onexitbegin, &onexitend);
 
   __onexitbegin = (_PVFV *) _encode_pointer (onexitbegin);
@@ -52,8 +52,8 @@ _onexit_t __cdecl mingw_onexit(_onexit_t func)
   return retval;
 }
 
-int __cdecl
-atexit (_PVFV func)
-{
-  return (mingw_onexit((_onexit_t)func) == NULL) ? -1 : 0;
-}
+// int __cdecl
+// atexit (_PVFV func)
+// {
+//   return (mingw_onexit((_onexit_t)func) == NULL) ? -1 : 0;
+// }
