@@ -6,6 +6,7 @@ ForwardIrpAndForget(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ PIRP Irp)
 {
+    // this part of a structure is identical in both FDO and PDO
     PDEVICE_OBJECT LowerDevice = ((PFDO_EXTENSION)DeviceObject->DeviceExtension)->LowerDevice;
 
     ASSERT(LowerDevice);
@@ -31,7 +32,7 @@ IssueSyncIoControlRequest(
     PAGED_CODE();
 
     /* Allocate a non-paged event */
-    Event = ExAllocatePoolUninitialized(NonPagedPool, sizeof(*Event), TAG_PARTMGR);
+    Event = ExAllocatePoolWithTag(NonPagedPool, sizeof(*Event), TAG_PARTMGR);
     if (!Event)
     {
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -42,14 +43,14 @@ IssueSyncIoControlRequest(
 
     /* Build the IRP */
     Irp = IoBuildDeviceIoControlRequest(IoControlCode,
-                                         DeviceObject,
-                                         InputBuffer,
-                                         InputBufferLength,
-                                         OutputBuffer,
-                                         OutputBufferLength,
-                                         InternalDeviceIoControl,
-                                         Event,
-                                         &IoStatusBlock);
+                                        DeviceObject,
+                                        InputBuffer,
+                                        InputBufferLength,
+                                        OutputBuffer,
+                                        OutputBufferLength,
+                                        InternalDeviceIoControl,
+                                        Event,
+                                        &IoStatusBlock);
     if (!Irp)
     {
         /* Fail, free the event */

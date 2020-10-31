@@ -12,9 +12,8 @@
 #include <mountdev.h>
 #include <ntddvol.h>
 #include <ntdddisk.h>
-#include <wdmguid.h>
 #include <ndk/psfuncs.h>
-#include <ntdddisk.h>
+#include <ioevent.h>
 #include <stdio.h>
 #include <debug/driverdbg.h>
 
