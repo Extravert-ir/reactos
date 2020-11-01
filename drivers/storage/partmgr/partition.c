@@ -644,8 +644,8 @@ PartMgrPartitionDeviceControl(
                 .NumberOfDiskExtents = 1,
                 .Extents = {{
                     .DiskNumber = fdoExtension->DiskData.DeviceNumber,
-                    .StartingOffset = partExt->StartingOffset,
-                    .ExtentLength = partExt->PartitionLength
+                    .StartingOffset.QuadPart = partExt->StartingOffset,
+                    .ExtentLength.QuadPart = partExt->PartitionLength
                 }}
             };
 
