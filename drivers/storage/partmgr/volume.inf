@@ -1,0 +1,32 @@
+; Stub inf file for STORAGE\Volume devices
+
+[Version]
+Signature  = "$Windows NT$"
+;Signature  = "$ReactOS$"
+LayoutFile = layout.inf
+Class      = Volume
+ClassGUID  = {71A27CDD-812A-11D0-BEC7-08002BE2092F}
+Provider   = %ReactOS%
+DriverVer  = 11/03/2020,1.0
+
+[ClassInstall32.NT]
+AddReg = VolumeClass.NT.AddReg
+
+[VolumeClass.NT.AddReg]
+HKR, , ,                0, %VolumeClassName%
+HKR, , Icon,            0, "-53"
+HKR, , Installer32,     0, "syssetup.dll,VolumeClassInstaller"
+HKR, , NoInstallClass,  0, 1
+HKR, , SilentInstall,   0, 1
+
+[Manufacturer]
+%ReactOS% = ReactOS
+
+[GenericMfg]
+%STORAGE\Volume.DeviceDesc% = volume_install,STORAGE\Volume
+
+
+[Strings]
+ReactOS = "ReactOS Team"
+VolumeClassName = "Storage volumes"
+STORAGE\Volume.DeviceDesc = "Generic volume"
